@@ -32,6 +32,8 @@ RUN mkdir /root/.android \
 RUN mv /bin/sh /bin/sh.backup \
   && cp /bin/bash /bin/sh
 
+RUN yes | sdkmanager --licenses
+
 # Update platform and build tools
 RUN echo "y" | sdkmanager "tools" "platform-tools" "build-tools;${ANDROID_BUILD_TOOLS}"
 
