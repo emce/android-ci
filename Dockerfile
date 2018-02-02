@@ -1,54 +1,75 @@
-#
-# GitLab CI Android Runner
-#
-#
-FROM openjdk:8-jdk
+FROM quay.io/bitriseio/bitrise-base:alpha
 
-ENV ANDROID_BUILD_TOOLS "27.0.1"
-ENV ANDROID_SDK_TOOLS "27.0.1"
-ENV ANDROID_HOME "/android-sdk"
-# emulator is in its own path since 25.3.0 (not in sdk tools anymore)
-ENV PATH=$PATH:${ANDROID_HOME}/emulator:${ANDROID_HOME}/tools:${ANDROID_HOME}/tools/bin:${ANDROID_HOME}/platform-tools
+ENV ANDROID_HOME /opt/android-sdk-linux
 
-# Prepare dependencies
-RUN mkdir $ANDROID_HOME \
-  && apt-get update --yes \
-  && apt-get install --yes wget tar unzip lib32stdc++6 lib32z1 libqt5widgets5 expect \
-  && apt-get clean \
-  && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Install sdk tools
-RUN wget -O android-sdk.zip https://dl.google.com/android/repository/sdk-tools-linux-3859397.zip \
-  && unzip -q android-sdk.zip -d $ANDROID_HOME \
-  && rm android-sdk.zip
+# ------------------------------------------------------
+# --- Install required tools
 
-# Workaround for 
-# Warning: File /root/.android/repositories.cfg could not be loaded.
-RUN mkdir /root/.android \
-  && touch /root/.android/repositories.cfg
+RUN apt-get update -qq
 
-# Workaround for host bitness error with android emulator
-# https://stackoverflow.com/a/37604675/455578
-RUN mv /bin/sh /bin/sh.backup \
-  && cp /bin/bash /bin/sh
+# Base (non android specific) tools
+# -> should be added to bitriseio/docker-bitrise-base
 
+# Dependencies to execute Android builds
+RUN dpkg --add-architecture i386
+RUN apt-get update -qq
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-8-jdk libc6:i386 libstdc++6:i386 libgcc1:i386 libncurses5:i386 libz1:i386
+
+
+# ------------------------------------------------------
+# --- Download Android SDK tools into $ANDROID_HOME
+
+RUN cd /opt \
+    && wget -q https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip -O android-sdk-tools.zip \
+    && unzip -q android-sdk-tools.zip -d ${ANDROID_HOME} \
+    && rm android-sdk-tools.zip
+
+ENV PATH ${PATH}:${ANDROID_HOME}/tools:${ANDROID_HOME}/tools/bin:${ANDROID_HOME}/platform-tools
+
+# ------------------------------------------------------
+# --- Install Android SDKs and other build packages
+
+# Other tools and resources of Android SDK
+#  you should only install the packages you need!
+# To get a full list of available options you can use:
+#  sdkmanager --list
+
+# Accept licenses before installing components, no need to echo y for each component
+# License is valid for all the standard components in versions installed from this file
+# Non-standard components: MIPS system images, preview versions, GDK (Google Glass) and Android Google TV require separate licenses, not accepted there
 RUN yes | sdkmanager --licenses
 
-# Update platform and build tools
-RUN echo "y" | sdkmanager "tools" "platform-tools" "build-tools;${ANDROID_BUILD_TOOLS}"
+# Platform tools
+RUN sdkmanager "emulator" "tools" "platform-tools"
 
-# Update SDKs
-RUN echo "y" | sdkmanager "platforms;android-27" "platforms;android-24"
+# SDKs
+# Please keep these in descending order!
+# The `yes` is for accepting all non-standard tool licenses.
 
-# Update emulators
-RUN echo "y" | sdkmanager "system-images;android-24;google_apis;x86_64"
+# Please keep all sections in descending order!
+RUN yes | sdkmanager \
+    "platforms;android-27" \
+    "platforms;android-24" \
+    "platforms;android-19" \
+    "build-tools;27.0.3" \
+    "system-images;android-24;google_apis;x86" \
+    "extras;android;m2repository" \
+    "extras;google;m2repository" \
+    "extras;google;google_play_services" \
+    "extras;m2repository;com;android;support;constraint;constraint-layout;1.0.2" \
+    "extras;m2repository;com;android;support;constraint;constraint-layout-solver;1.0.2"
 
-# Update extra
-RUN echo "y" | sdkmanager "extras;android;m2repository" "extras;google;m2repository" "extras;google;google_play_services"
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y libqt5widgets5
+ENV QT_QPA_PLATFORM offscreen
+ENV LD_LIBRARY_PATH ${ANDROID_HOME}/tools/lib64:${ANDROID_HOME}/emulator/lib64:${ANDROID_HOME}/emulator/lib64/qt/lib
 
-# Constraint Layout
-RUN echo "y" | sdkmanager "extras;m2repository;com;android;support;constraint;constraint-layout;1.0.2"
-RUN echo "y" | sdkmanager "extras;m2repository;com;android;support;constraint;constraint-layout-solver;1.0.2"
+
+# ------------------------------------------------------
+# --- Cleanup
+
+# Cleaning
+RUN apt-get clean
 
 # echo actually installed Android SDK packages
 RUN sdkmanager --list
